@@ -2,11 +2,12 @@
 /* 
 Plugin Name: WooCommerce Slack Notifier 
 Description: Sends order and inventory notifications to Slack using Slack blocks and markdown, grouped by thread. 
-Version: 1.2
+Version: 1.3
 Author: Michael Patrick
 */ 
 
 if (!defined('ABSPATH')) exit; 
+
 add_action('woocommerce_new_order', 'wsn_notify_new_order', 10, 1); 
 add_action('woocommerce_order_status_changed', 'wsn_notify_order_status_change', 10, 4); 
 add_action('woocommerce_low_stock', 'wsn_notify_low_stock'); 
@@ -14,6 +15,8 @@ add_action('woocommerce_no_stock', 'wsn_notify_no_stock');
 add_action('woocommerce_product_set_stock', 'wsn_check_product_details_on_stock_change', 10, 1); 
 add_action('woocommerce_product_set_stock_status', 'wsn_notify_backorder', 10, 2);
 add_action('save_post_product', 'wsn_notify_product_change', 10, 3);
+add_action('woocommerce_update_product', 'wsn_notify_product_change_full', 10, 1);
+add_action('updated_post_meta', 'wsn_hook_meta_changes', 10, 4);
 
 add_action('publish_post', 'wsn_notify_new_post', 10, 2);
 add_action('user_register', 'wsn_notify_new_customer');
@@ -37,7 +40,16 @@ function wsn_register_settings() {
 }
 
 function wsn_filter_markdown($text) {
-    return strip_tags(str_replace(['<br>', '<br/>', '<br />'], ["\n", "\n", "\n"], $text));
+    // Replace <br> tags with newlines
+    $text = str_ireplace(['<br>', '<br/>', '<br />'], "\n", $text);
+
+    // Decode HTML entities like &amp;, &quot;, etc.
+    $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+    // Strip remaining HTML tags
+    $text = strip_tags($text);
+
+    return trim($text);
 }
 
 function wsn_order_value_emoji($total) {
@@ -112,7 +124,7 @@ function wsn_notify_new_order($order_id) {
             "type" => "context",
             "elements" => [[
                 "type" => "mrkdwn",
-                "text" => $shipping . " | *Total:* " . strip_tags(wc_price($order->get_total()))
+                "text" => $shipping . " | *Total:* " . wsn_filter_markdown(wc_price($order->get_total()))
             ]]
         ],
         [
@@ -140,35 +152,6 @@ function wsn_notify_new_order($order_id) {
             update_post_meta($order_id, '_wsn_slack_thread_ts', $thread_ts);
         }
     }
-}
-
-function wsn_notify_product_change($post_id, $post, $update) {
-    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
-    $opt = get_option('wsn_settings');
-    if (!($opt['enable_new_product'] ?? false)) return;
-    $product = wc_get_product($post_id);
-    if (!$product) return;
-    $title = get_the_title($post_id);
-    $url = get_permalink($post_id);
-    $price = $product->get_price();
-    $sku = $product->get_sku();
-    $image_url = wp_get_attachment_image_url($product->get_image_id(), 'medium');
-    $emoji = $update ? ":pencil2:" : ":package:";
-    $blocks = [
-        [
-            "type" => "section",
-            "text" => [
-                "type" => "mrkdwn",
-                "text" => "{$emoji} *Product " . ($update ? "Updated" : "Published") . ":* <{$url}|{$title}>\n• *SKU:* `{$sku}`\n• *Price:* " . wc_price($price)
-            ],
-            "accessory" => $image_url ? [
-                "type" => "image",
-                "image_url" => $image_url,
-                "alt_text" => $title
-            ] : null
-        ]
-    ];
-    wsn_send_to_slack('', $blocks);
 }
 
 function wsn_check_product_details_on_stock_change($product) {
@@ -256,6 +239,7 @@ function wsn_settings_page() {
                         <label><input type="checkbox" name="wsn_settings[enable_new_order]" value="1" <?php checked($options['enable_new_order'] ?? '', 1); ?> /> New Orders</label><br>
                         <label><input type="checkbox" name="wsn_settings[enable_backorder]" value="1" <?php checked($options['enable_backorder'] ?? '', 1); ?> /> Backorders</label><br>
                         <br>
+                        <label><input type="checkbox" name="wsn_settings[enable_new_product]" value="1" <?php checked($options['enable_new_product'] ?? '', 1); ?> /> New or Updated Products</label><br>
                         <label><input type="checkbox" name="wsn_settings[show_new_product_notice]" value="1" <?php checked($options['show_new_product_notice'] ?? '', 1); ?> /> Show "New Product" Notice</label><br>
                         <label><input type="checkbox" name="wsn_settings[enable_low_stock]" value="1" <?php checked($options['enable_low_stock'] ?? '', 1); ?> /> Low Stock</label><br>
                         <label><input type="checkbox" name="wsn_settings[enable_no_stock]" value="1" <?php checked($options['enable_no_stock'] ?? '', 1); ?> /> No Stock</label><br>
@@ -344,4 +328,91 @@ function wsn_send_to_slack($text = '', $blocks = null, $thread_ts = null) {
     }
     $body = json_decode(wp_remote_retrieve_body($response), true);
     return $body['ok'] ? $body['ts'] : false;
+}
+
+function wsn_notify_product_change($post_id, $post, $update) {
+    if (
+        defined('DOING_AUTOSAVE') && DOING_AUTOSAVE ||
+        $post->post_type !== 'product' ||
+        $post->post_status !== 'publish'
+    ) {
+        return;
+    }
+
+    $opt = get_option('wsn_settings');
+    if (!($opt['enable_new_product'] ?? false)) return;
+
+    $product = wc_get_product($post_id);
+    if (!$product) return;
+
+    $title = get_the_title($post_id);
+    $url = get_permalink($post_id);
+    $price = $product->get_price();
+    $sku = $product->get_sku();
+    $image_url = wp_get_attachment_image_url($product->get_image_id(), 'medium');
+    $emoji = $update ? ":pencil2:" : ":package:";
+
+    $blocks = [[
+        "type" => "section",
+        "text" => [
+            "type" => "mrkdwn",
+            "text" => "{$emoji} *Product " . ($update ? "Updated" : "Published") . ":* <{$url}|{$title}>\n• *SKU:* `{$sku}`\n• *Price:* " . wsn_filter_markdown(wc_price($price))
+        ],
+        "accessory" => $image_url ? [
+            "type" => "image",
+            "image_url" => $image_url,
+            "alt_text" => $title
+        ] : null
+    ]];
+
+    wsn_send_to_slack('', $blocks);
+}
+
+function wsn_hook_meta_changes($meta_id, $object_id, $meta_key, $meta_value) {
+    // Confirm it's a WooCommerce product
+    if (get_post_type($object_id) !== 'product') return;
+
+    // Meta keys we care about
+    $keys_of_interest = ['_price', '_regular_price', '_sale_price', '_stock', '_stock_status'];
+    if (!in_array($meta_key, $keys_of_interest)) return;
+
+    // Optional: prevent spamming
+    if (get_transient("wsn_skip_{$object_id}")) return;
+    set_transient("wsn_skip_{$object_id}", true, 60);
+
+    // Log debug
+    error_log("Slack notifier triggered by Quick Edit meta key '{$meta_key}' for product ID: {$object_id}");
+
+    // Trigger Slack notification
+    wsn_notify_product_change_full($object_id);
+}
+
+function wsn_notify_product_change_full($product_id) {
+    $opt = get_option('wsn_settings');
+    if (!($opt['enable_new_product'] ?? false)) return;
+
+    $product = wc_get_product($product_id);
+    if (!$product || 'publish' !== get_post_status($product_id)) return;
+
+    $title = get_the_title($product_id);
+    $url = get_permalink($product_id);
+    $price = $product->get_price();
+    $sku = $product->get_sku();
+    $image_url = wp_get_attachment_image_url($product->get_image_id(), 'medium');
+    $emoji = ":pencil2:";
+
+    $blocks = [[
+        "type" => "section",
+        "text" => [
+            "type" => "mrkdwn",
+            "text" => "{$emoji} *Product Updated:* <{$url}|".wsn_filter_markdown($title).">\n• *SKU:* `{$sku}`\n• *Price:* " . wsn_filter_markdown(wc_price($price))
+        ],
+        "accessory" => $image_url ? [
+            "type" => "image",
+            "image_url" => $image_url,
+            "alt_text" => $title
+        ] : null
+    ]];
+
+    wsn_send_to_slack('', $blocks);
 }
