@@ -14,9 +14,10 @@ add_action('woocommerce_low_stock', 'wsn_notify_low_stock');
 add_action('woocommerce_no_stock', 'wsn_notify_no_stock'); 
 add_action('woocommerce_product_set_stock', 'wsn_check_product_details_on_stock_change', 10, 1); 
 add_action('woocommerce_product_set_stock_status', 'wsn_notify_backorder', 10, 2);
-add_action('save_post_product', 'wsn_notify_product_change', 10, 3);
-add_action('woocommerce_update_product', 'wsn_notify_product_change_full', 10, 1);
+//add_action('woocommerce_update_product', 'wsn_notify_product_change_full', 10, 1);
 add_action('updated_post_meta', 'wsn_hook_meta_changes', 10, 4);
+add_action('save_post_product', 'wsn_notify_product_change', 10, 3);
+add_action('save_post_product_variation', 'wsn_notify_product_change', 10, 3);
 
 add_action('publish_post', 'wsn_notify_new_post', 10, 2);
 add_action('user_register', 'wsn_notify_new_customer');
@@ -164,7 +165,6 @@ function wsn_check_product_details_on_stock_change($product) {
 
     if (!empty($missing)) {
         $msg = ":mag: *Product missing details* - `{$product->get_name()}` missing: " . implode(', ', $missing);
-        //wsn_send_to_slack($msg);
         wsn_send_to_slack($msg, $blocks, $thread_ts, 'channel_products');
     }
 }
@@ -176,7 +176,6 @@ function wsn_notify_new_post($ID, $post) {
     $title = get_the_title($ID);
     $link = get_permalink($ID);
     $message = ":memo: *New Post Published*: <$link|$title>";
-    //wsn_send_to_slack($message);
     wsn_send_to_slack($message, $blocks, $thread_ts, 'channel_general');
 }
 
@@ -188,7 +187,6 @@ function wsn_notify_new_customer($user_id) {
     if (!in_array('customer', $user->roles)) return;
 
     $message = ":bust_in_silhouette: *New Customer Registered*: `{$user->user_login}` ({$user->user_email})";
-    //wsn_send_to_slack($message);
     wsn_send_to_slack($message, $blocks, $thread_ts, 'channel_general');
 }
 
@@ -204,7 +202,6 @@ function wsn_notify_new_review($comment_ID, $approved) {
     $product = get_the_title($comment->comment_post_ID);
     $link = get_permalink($comment->comment_post_ID);
     $message = ":star: *New Review on* <$link|$product>: \"" . wsn_filter_markdown($comment->comment_content) . "\" by `{$comment->comment_author}`";
-    //wsn_send_to_slack($message);
     wsn_send_to_slack($message, $blocks, $thread_ts, 'channel_products');
 }
 
@@ -215,7 +212,6 @@ function wsn_notify_backorder($product_id, $stock_status) {
     if ($stock_status === 'onbackorder') {
         $product = wc_get_product($product_id);
         $message = ":repeat: *Backorder Alert* - `{$product->get_name()}` (ID: $product_id)";
-        //wsn_send_to_slack($message);
         wsn_send_to_slack('', $blocks, $thread_ts, 'channel_orders');
     }
 }
@@ -277,7 +273,6 @@ function wsn_settings_page() {
 
     <?php
     if (isset($_POST['wsn_send_test'])) {
-        //$response = wsn_send_to_slack(":white_check_mark: *Test message sent from WooCommerce Slack Notifier!*");
         $response = wsn_send_to_slack(":white_check_mark: *Test message sent from WooCommerce Slack Notifier!*", $blocks, $thread_ts, 'channel_general');
         if ($response === true) {
             echo '<div class="notice notice-success"><p>Test message sent!</p></div>';
@@ -316,7 +311,6 @@ function wsn_notify_no_stock($product) {
             "alt_text" => $product_name
         ] : null
     ];
-    //$new_thread_ts = wsn_send_to_slack('', $blocks, $thread_ts);
     $new_thread_ts = wsn_send_to_slack('', $blocks, $thread_ts, 'channel_products');
     if (!$thread_ts && $new_thread_ts) {
         update_post_meta($product_id, '_wsn_thread_ts', $new_thread_ts);
@@ -347,45 +341,6 @@ function wsn_send_to_slack($text = '', $blocks = null, $thread_ts = null, $chann
     }
     $body = json_decode(wp_remote_retrieve_body($response), true);
     return $body['ok'] ? $body['ts'] : false;
-}
-
-function wsn_notify_product_change($post_id, $post, $update) {
-    if (
-        defined('DOING_AUTOSAVE') && DOING_AUTOSAVE ||
-        $post->post_type !== 'product' ||
-        $post->post_status !== 'publish'
-    ) {
-        return;
-    }
-
-    $opt = get_option('wsn_settings');
-    if (!($opt['enable_new_product'] ?? false)) return;
-
-    $product = wc_get_product($post_id);
-    if (!$product) return;
-
-    $title = get_the_title($post_id);
-    $url = get_permalink($post_id);
-    $price = $product->get_price();
-    $sku = $product->get_sku();
-    $image_url = wp_get_attachment_image_url($product->get_image_id(), 'medium');
-    $emoji = $update ? ":pencil2:" : ":package:";
-
-    $blocks = [[
-        "type" => "section",
-        "text" => [
-            "type" => "mrkdwn",
-            "text" => "{$emoji} *Product " . ($update ? "Updated" : "Published") . ":* <{$url}|{$title}>\n• *SKU:* `{$sku}`\n• *Price:* " . wsn_filter_markdown(wc_price($price))
-        ],
-        "accessory" => $image_url ? [
-            "type" => "image",
-            "image_url" => $image_url,
-            "alt_text" => $title
-        ] : null
-    ]];
-
-    //wsn_send_to_slack('', $blocks);
-    wsn_send_to_slack('', $blocks, $thread_ts, 'channel_products');
 }
 
 function wsn_hook_meta_changes($meta_id, $object_id, $meta_key, $meta_value) {
@@ -434,6 +389,48 @@ function wsn_notify_product_change_full($product_id) {
         ] : null
     ]];
 
-    //wsn_send_to_slack('', $blocks);
     wsn_send_to_slack('', $blocks, $thread_ts, 'channel_products');
+}
+
+function wsn_notify_product_change($post_id, $post, $update) {
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+
+    $opt = get_option('wsn_settings');
+    if (!($opt['enable_new_product'] ?? false)) return;
+
+    $product = wc_get_product($post_id);
+    if (!$product) return;
+
+    // NEW: Variation info
+    $title = $product->is_type('variation')
+        ? get_the_title($product->get_parent_id()) . ' – ' . wc_get_formatted_variation($product, true, false, true)
+        : get_the_title($post_id);
+
+    $url = get_permalink($product->get_parent_id() ?: $post_id);
+    $sku = $product->get_sku();
+    $price = $product->get_price();
+    $image_url = wp_get_attachment_image_url($product->get_image_id(), 'medium');
+    $emoji = $update ? ":pencil2:" : ":package:";
+
+    $blocks = [
+        [
+            "type" => "section",
+            "text" => [
+                "type" => "mrkdwn",
+                "text" => "{$emoji} *Product " . ($update ? "Updated" : "Published") . ":* <{$url}|{$title}>\n• *SKU:* `{$sku}`\n• *Price:* " . wsn_filter_markdown(wc_price($price))
+            ],
+            "accessory" => $image_url ? [
+                "type" => "image",
+                "image_url" => $image_url,
+                "alt_text" => $title
+            ] : null
+        ]
+    ];
+
+    // Slack thread (shared by parent + variations)
+    $thread_ts = get_post_meta($product->get_parent_id() ?: $post_id, '_wsn_thread_ts', true);
+    $resp = wsn_send_to_slack('', $blocks, $thread_ts, 'channel_products');
+    if (!$thread_ts && $resp) {
+        update_post_meta($product->get_parent_id() ?: $post_id, '_wsn_thread_ts', $resp);
+    }
 }
