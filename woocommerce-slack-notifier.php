@@ -147,7 +147,7 @@ function wsn_notify_new_order($order_id) {
     }
     $thread_ts = get_post_meta($order_id, '_wsn_slack_thread_ts', true);
     if (!$thread_ts) {
-        $thread_ts = wsn_send_to_slack('', $blocks);
+        $thread_ts = wsn_send_to_slack('', $blocks, $thread_ts, 'channel_orders');
         if ($thread_ts) {
             update_post_meta($order_id, '_wsn_slack_thread_ts', $thread_ts);
         }
@@ -164,7 +164,8 @@ function wsn_check_product_details_on_stock_change($product) {
 
     if (!empty($missing)) {
         $msg = ":mag: *Product missing details* - `{$product->get_name()}` missing: " . implode(', ', $missing);
-        wsn_send_to_slack($msg);
+        //wsn_send_to_slack($msg);
+        wsn_send_to_slack($msg, $blocks, $thread_ts, 'channel_products');
     }
 }
 
@@ -175,7 +176,8 @@ function wsn_notify_new_post($ID, $post) {
     $title = get_the_title($ID);
     $link = get_permalink($ID);
     $message = ":memo: *New Post Published*: <$link|$title>";
-    wsn_send_to_slack($message);
+    //wsn_send_to_slack($message);
+    wsn_send_to_slack($message, $blocks, $thread_ts, 'channel_general');
 }
 
 function wsn_notify_new_customer($user_id) {
@@ -186,7 +188,8 @@ function wsn_notify_new_customer($user_id) {
     if (!in_array('customer', $user->roles)) return;
 
     $message = ":bust_in_silhouette: *New Customer Registered*: `{$user->user_login}` ({$user->user_email})";
-    wsn_send_to_slack($message);
+    //wsn_send_to_slack($message);
+    wsn_send_to_slack($message, $blocks, $thread_ts, 'channel_general');
 }
 
 function wsn_notify_new_review($comment_ID, $approved) {
@@ -201,7 +204,8 @@ function wsn_notify_new_review($comment_ID, $approved) {
     $product = get_the_title($comment->comment_post_ID);
     $link = get_permalink($comment->comment_post_ID);
     $message = ":star: *New Review on* <$link|$product>: \"" . wsn_filter_markdown($comment->comment_content) . "\" by `{$comment->comment_author}`";
-    wsn_send_to_slack($message);
+    //wsn_send_to_slack($message);
+    wsn_send_to_slack($message, $blocks, $thread_ts, 'channel_products');
 }
 
 function wsn_notify_backorder($product_id, $stock_status) {
@@ -211,7 +215,8 @@ function wsn_notify_backorder($product_id, $stock_status) {
     if ($stock_status === 'onbackorder') {
         $product = wc_get_product($product_id);
         $message = ":repeat: *Backorder Alert* - `{$product->get_name()}` (ID: $product_id)";
-        wsn_send_to_slack($message);
+        //wsn_send_to_slack($message);
+        wsn_send_to_slack('', $blocks, $thread_ts, 'channel_orders');
     }
 }
 
@@ -227,10 +232,22 @@ function wsn_settings_page() {
                     <th scope="row">Slack Bot Token</th>
                     <td><input type="text" name="wsn_settings[token]" value="<?php echo esc_attr($options['token'] ?? ''); ?>" size="50" /></td>
                 </tr>
+
                 <tr>
-                    <th scope="row">Slack Channel (e.g., #orders)</th>
-                    <td><input type="text" name="wsn_settings[channel]" value="<?php echo esc_attr($options['channel'] ?? ''); ?>" size="30" /></td>
+                    <th scope="row">Slack Channels</th>
+                    <td>
+                        <label>Orders Channel:<br>
+                        <input type="text" name="wsn_settings[channel_orders]" value="<?php echo esc_attr($options['channel_orders'] ?? ''); ?>" size="30" />
+                        </label><br><br>
+                        <label>Products Channel:<br>
+                        <input type="text" name="wsn_settings[channel_products]" value="<?php echo esc_attr($options['channel_products'] ?? ''); ?>" size="30" />
+                        </label><br><br>
+                        <label>General Channel:<br>
+                        <input type="text" name="wsn_settings[channel_general]" value="<?php echo esc_attr($options['channel_general'] ?? ''); ?>" size="30" />
+                        </label>
+                    </td>
                 </tr>
+
                 <tr>
                     <th scope="row">Enable Notifications</th>
                     <td>
@@ -260,7 +277,8 @@ function wsn_settings_page() {
 
     <?php
     if (isset($_POST['wsn_send_test'])) {
-        $response = wsn_send_to_slack(":white_check_mark: *Test message sent from WooCommerce Slack Notifier!*");
+        //$response = wsn_send_to_slack(":white_check_mark: *Test message sent from WooCommerce Slack Notifier!*");
+        $response = wsn_send_to_slack(":white_check_mark: *Test message sent from WooCommerce Slack Notifier!*", $blocks, $thread_ts, 'channel_general');
         if ($response === true) {
             echo '<div class="notice notice-success"><p>Test message sent!</p></div>';
         } else {
@@ -298,16 +316,17 @@ function wsn_notify_no_stock($product) {
             "alt_text" => $product_name
         ] : null
     ];
-    $new_thread_ts = wsn_send_to_slack('', $blocks, $thread_ts);
+    //$new_thread_ts = wsn_send_to_slack('', $blocks, $thread_ts);
+    $new_thread_ts = wsn_send_to_slack('', $blocks, $thread_ts, 'channel_products');
     if (!$thread_ts && $new_thread_ts) {
         update_post_meta($product_id, '_wsn_thread_ts', $new_thread_ts);
     }
 }
 
-function wsn_send_to_slack($text = '', $blocks = null, $thread_ts = null) {
+function wsn_send_to_slack($text = '', $blocks = null, $thread_ts = null, $channel_key = 'channel_general') {
     $options = get_option('wsn_settings');
     $token = $options['token'] ?? '';
-    $channel = $options['channel'] ?? '';
+    $channel = $options[$channel_key] ?? '';
     if (empty($token) || empty($channel)) return false;
     $payload = [
         'channel' => $channel,
@@ -365,7 +384,8 @@ function wsn_notify_product_change($post_id, $post, $update) {
         ] : null
     ]];
 
-    wsn_send_to_slack('', $blocks);
+    //wsn_send_to_slack('', $blocks);
+    wsn_send_to_slack('', $blocks, $thread_ts, 'channel_products');
 }
 
 function wsn_hook_meta_changes($meta_id, $object_id, $meta_key, $meta_value) {
@@ -414,5 +434,6 @@ function wsn_notify_product_change_full($product_id) {
         ] : null
     ]];
 
-    wsn_send_to_slack('', $blocks);
+    //wsn_send_to_slack('', $blocks);
+    wsn_send_to_slack('', $blocks, $thread_ts, 'channel_products');
 }
