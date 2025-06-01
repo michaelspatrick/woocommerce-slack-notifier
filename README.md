@@ -2,12 +2,62 @@
 
 A WordPress plugin that sends Slack notifications for important WooCommerce and WordPress events, including:
 
-- 🛒 New orders (with item, quantity, total, and shipping)
-- ⚠️ Low stock / ❌ Out of stock / 🔁 Backorders
-- 📝 New blog posts
-- ⭐ New product reviews
-- 👤 New customer registrations
-- 🔍 Products missing weight or dimension data
+## ✅ Features
+
+### 🔔 Order Notifications
+- New order alerts with:
+  - Ordered item details
+  - Quantities and prices
+  - Shipping info, order notes, and status
+  - Customer contact info and payment method
+  - Discount/coupon codes
+  - Link to view the order in WooCommerce
+- Threaded Slack updates for each order
+- Emoji summary for high-value orders (e.g., 🔥 for orders over $200)
+
+### 📦 Product Stock Alerts
+- Low stock and out-of-stock notifications
+- Slack message includes:
+  - Product name and SKU
+  - Image preview
+  - Markdown formatting
+- Grouped into threads per product
+- Optional banner for product alerts (⚠️ Inventory Alert)
+
+### 🛍️ Product Change Notifications
+- Alerts for:
+  - New products added
+  - Product updates (price, title, etc.)
+- Includes product:
+  - Name and permalink
+  - SKU and price
+  - Image preview
+
+### 🧠 Smart Formatting
+- Uses Slack **blocks** and **markdown** (bold, italic, bullet lists)
+- Avoids HTML escaping issues
+- Threaded context for ongoing updates
+
+## ⚙️ Settings (under Settings > Slack Notifier)
+- Slack bot token and channel
+- Enable/disable:
+  - New order alerts
+  - Low/no stock alerts
+  - Missing product info (weight/dimensions)
+  - New/updated product messages
+  - Banner warning for product alerts
+
+## 🧠 Supported Notifications
+| Event Type          | Toggle Setting             |
+|---------------------|----------------------------|
+| New Order           | `New Orders`               |
+| Low Stock           | `Low Stock`                |
+| Out of Stock        | `No Stock`                 |
+| Missing Product Info| `Missing Product Info`     |
+| New Blog Post       | `New Blog Posts`           |
+| New Review          | `New Reviews`              |
+| New Customer        | `New Customers`            |
+| Backorders          | `Backorders`               |
 
 ## 🚀 Installation
 
@@ -25,19 +75,6 @@ A WordPress plugin that sends Slack notifications for important WooCommerce and 
 4. Click **Save Changes**.
 
 > ✅ Use the “Send Test Slack Message” button to verify connectivity.
-
-## 🧠 Supported Notifications
-
-| Event Type          | Toggle Setting             |
-|---------------------|----------------------------|
-| New Order           | `New Orders`               |
-| Low Stock           | `Low Stock`                |
-| Out of Stock        | `No Stock`                 |
-| Missing Product Info| `Missing Product Info`     |
-| New Blog Post       | `New Blog Posts`           |
-| New Review          | `New Reviews`              |
-| New Customer        | `New Customers`            |
-| Backorders          | `Backorders`               |
 
 ## 🧪 Requirements
 
