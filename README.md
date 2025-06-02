@@ -61,7 +61,7 @@ A WordPress plugin that sends Slack notifications for important WooCommerce and 
 
 ## 🚀 Installation
 
-1. Download the latest `.zip` release of the plugin.
+1. For now, the plugin is a single file.  Create a zip of the woocommerce-slack-notifier directory.
 2. In your WordPress dashboard, go to **Plugins → Add New → Upload Plugin**.
 3. Select the ZIP file and click **Install Now**, then **Activate**.
 
