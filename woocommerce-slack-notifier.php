@@ -14,6 +14,7 @@ add_action('woocommerce_low_stock', 'wsn_notify_low_stock');
 add_action('woocommerce_no_stock', 'wsn_notify_no_stock'); 
 add_action('woocommerce_product_set_stock', 'wsn_check_product_details_on_stock_change', 10, 1); 
 add_action('woocommerce_product_set_stock_status', 'wsn_notify_backorder', 10, 2);
+//add_action('save_post_product', 'wsn_notify_product_change', 10, 3);
 //add_action('woocommerce_update_product', 'wsn_notify_product_change_full', 10, 1);
 add_action('updated_post_meta', 'wsn_hook_meta_changes', 10, 4);
 add_action('save_post_product', 'wsn_notify_product_change', 10, 3);
@@ -247,11 +248,15 @@ function wsn_settings_page() {
                 <tr>
                     <th scope="row">Enable Notifications</th>
                     <td>
+                        General Channel Notifications:<br>
                         <label><input type="checkbox" name="wsn_settings[enable_new_customer]" value="1" <?php checked($options['enable_new_customer'] ?? '', 1); ?> /> New Customers</label><br>
+                        <label><input type="checkbox" name="wsn_settings[enable_new_post]" value="1" <?php checked($options['enable_new_post'] ?? '', 1); ?> /> New Blog Posts</label><br>
                         <br>
+                        Orders Channel Notifications:<br>
                         <label><input type="checkbox" name="wsn_settings[enable_new_order]" value="1" <?php checked($options['enable_new_order'] ?? '', 1); ?> /> New Orders</label><br>
                         <label><input type="checkbox" name="wsn_settings[enable_backorder]" value="1" <?php checked($options['enable_backorder'] ?? '', 1); ?> /> Backorders</label><br>
                         <br>
+                        Products Channel Notifications:<br>
                         <label><input type="checkbox" name="wsn_settings[enable_new_product]" value="1" <?php checked($options['enable_new_product'] ?? '', 1); ?> /> New or Updated Products</label><br>
                         <label><input type="checkbox" name="wsn_settings[show_new_product_notice]" value="1" <?php checked($options['show_new_product_notice'] ?? '', 1); ?> /> Show "New Product" Notice</label><br>
                         <label><input type="checkbox" name="wsn_settings[enable_low_stock]" value="1" <?php checked($options['enable_low_stock'] ?? '', 1); ?> /> Low Stock</label><br>
@@ -259,7 +264,6 @@ function wsn_settings_page() {
                         <label><input type="checkbox" name="wsn_settings[enable_missing_details]" value="1" <?php checked($options['enable_missing_details'] ?? '', 1); ?> /> Missing Product Info</label><br>
                         <label><input type="checkbox" name="wsn_settings[enable_new_review]" value="1" <?php checked($options['enable_new_review'] ?? '', 1); ?> /> New Reviews</label><br>
                         <br>
-                        <label><input type="checkbox" name="wsn_settings[enable_new_post]" value="1" <?php checked($options['enable_new_post'] ?? '', 1); ?> /> New Blog Posts</label><br>
                     </td>
                 </tr>
             </table>
@@ -273,6 +277,7 @@ function wsn_settings_page() {
 
     <?php
     if (isset($_POST['wsn_send_test'])) {
+        //$response = wsn_send_to_slack(":white_check_mark: *Test message sent from WooCommerce Slack Notifier!*");
         $response = wsn_send_to_slack(":white_check_mark: *Test message sent from WooCommerce Slack Notifier!*", $blocks, $thread_ts, 'channel_general');
         if ($response === true) {
             echo '<div class="notice notice-success"><p>Test message sent!</p></div>';
@@ -311,6 +316,7 @@ function wsn_notify_no_stock($product) {
             "alt_text" => $product_name
         ] : null
     ];
+    //$new_thread_ts = wsn_send_to_slack('', $blocks, $thread_ts);
     $new_thread_ts = wsn_send_to_slack('', $blocks, $thread_ts, 'channel_products');
     if (!$thread_ts && $new_thread_ts) {
         update_post_meta($product_id, '_wsn_thread_ts', $new_thread_ts);
@@ -356,7 +362,7 @@ function wsn_hook_meta_changes($meta_id, $object_id, $meta_key, $meta_value) {
     set_transient("wsn_skip_{$object_id}", true, 60);
 
     // Log debug
-    error_log("Slack notifier triggered by Quick Edit meta key '{$meta_key}' for product ID: {$object_id}");
+    //error_log("Slack notifier triggered by Quick Edit meta key '{$meta_key}' for product ID: {$object_id}");
 
     // Trigger Slack notification
     wsn_notify_product_change_full($object_id);
