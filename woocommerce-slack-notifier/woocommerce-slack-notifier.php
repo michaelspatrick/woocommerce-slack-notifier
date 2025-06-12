@@ -2,7 +2,7 @@
 /* 
 Plugin Name: WooCommerce Slack Notifier 
 Description: Sends order and inventory notifications to Slack using Slack blocks and markdown, grouped by thread. 
-Version: 1.3
+Version: 1.4
 Author: Michael Patrick
 */ 
 
@@ -14,8 +14,6 @@ add_action('woocommerce_low_stock', 'wsn_notify_low_stock');
 add_action('woocommerce_no_stock', 'wsn_notify_no_stock'); 
 add_action('woocommerce_product_set_stock', 'wsn_check_product_details_on_stock_change', 10, 1); 
 add_action('woocommerce_product_set_stock_status', 'wsn_notify_backorder', 10, 2);
-//add_action('save_post_product', 'wsn_notify_product_change', 10, 3);
-//add_action('woocommerce_update_product', 'wsn_notify_product_change_full', 10, 1);
 add_action('updated_post_meta', 'wsn_hook_meta_changes', 10, 4);
 add_action('save_post_product', 'wsn_notify_product_change', 10, 3);
 add_action('save_post_product_variation', 'wsn_notify_product_change', 10, 3);
@@ -282,7 +280,17 @@ function wsn_settings_page() {
         if ($response === true) {
             echo '<div class="notice notice-success"><p>Test message sent!</p></div>';
         } else {
-            echo '<div class="notice notice-error"><p>Error: ' . esc_html($response) . '</p></div>';
+            $code = wp_remote_retrieve_response_code($response);
+            if ($code !== 200) {
+                 error_log("Slack API returned HTTP $code: " . wp_remote_retrieve_body($response));
+            } else {
+                 // Optional: Log Slack message ID (thread_ts) for debugging
+                 $body = wp_remote_retrieve_body($response);
+                 $json = json_decode($body, true);
+                 if (!empty($json['ts'])) {
+                       error_log("Slack message sent. Thread TS: " . $json['ts']);
+                 }
+            }
         }
     }
 }
@@ -439,4 +447,75 @@ function wsn_notify_product_change($post_id, $post, $update) {
     if (!$thread_ts && $resp) {
         update_post_meta($product->get_parent_id() ?: $post_id, '_wsn_thread_ts', $resp);
     }
+}
+
+function wsn_notify_order_status_change($order_id, $old_status, $new_status) {
+    if ($old_status === $new_status) return;
+
+    $order = wc_get_order($order_id);
+    if (!$order) return;
+
+    $total = $order->get_formatted_order_total();
+    $customer_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();
+    $customer_email = $order->get_billing_email();
+    $payment_method = $order->get_payment_method_title();
+    $order_date = $order->get_date_created() ? $order->get_date_created()->date('Y-m-d H:i:s') : 'N/A';
+
+    // Text summary for fallback or notification preview
+    $text = "Order #{$order_id} status changed from *{$old_status}* to *{$new_status}*.";
+
+    // Slack blocks for rich formatting
+    $blocks = [
+        [
+            "type" => "section",
+            "text" => [
+                "type" => "mrkdwn",
+                "text" => "*Order Status Changed* :truck:\nOrder *#{$order_id}* changed from *{$old_status}* to *{$new_status}*"
+            ]
+        ],
+        [
+            "type" => "section",
+            "fields" => [
+                [ "type" => "mrkdwn", "text" => "*Total:*\n{$total}" ],
+                [ "type" => "mrkdwn", "text" => "*Payment:*\n{$payment_method}" ],
+                [ "type" => "mrkdwn", "text" => "*Customer:*\n{$customer_name}" ],
+                [ "type" => "mrkdwn", "text" => "*Email:*\n{$customer_email}" ],
+                [ "type" => "mrkdwn", "text" => "*Date:*\n{$order_date}" ],
+            ]
+        ]
+    ];
+
+    wsn_send_to_slack($text, $blocks, null, 'channel_orders'); // Change channel key as needed
+}
+
+function wsn_notify_low_stock($product) {
+    if (!$product instanceof WC_Product) return;
+
+    $product_name = $product->get_name();
+    $product_id = $product->get_id();
+    $stock_quantity = $product->get_stock_quantity();
+    $product_type = $product->get_type();
+    $product_url = get_edit_post_link($product_id);
+
+    $text = "⚠️ Low stock alert for *{$product_name}* (ID: {$product_id})";
+
+    $blocks = [
+        [
+            "type" => "section",
+            "text" => [
+                "type" => "mrkdwn",
+                "text" => "*Low Stock Alert* :warning:\n*{$product_name}* (ID: {$product_id}) is running low."
+            ]
+        ],
+        [
+            "type" => "section",
+            "fields" => [
+                [ "type" => "mrkdwn", "text" => "*Type:*\n{$product_type}" ],
+                [ "type" => "mrkdwn", "text" => "*Current Stock:*\n" . ($stock_quantity !== null ? $stock_quantity : 'N/A') ],
+                [ "type" => "mrkdwn", "text" => "*Edit Product:*\n<{$product_url}|View Product>" ],
+            ]
+        ]
+    ];
+
+    wsn_send_to_slack($text, $blocks, null, 'channel_products'); // Adjust channel key as needed
 }
