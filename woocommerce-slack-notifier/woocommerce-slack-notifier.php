@@ -2,13 +2,17 @@
 /* 
 Plugin Name: WooCommerce Slack Notifier 
 Description: Sends order and inventory notifications to Slack using Slack blocks and markdown, grouped by thread. 
-Version: 1.4
+Version: 1.6
 Author: Michael Patrick
 */ 
 
 if (!defined('ABSPATH')) exit; 
 
-add_action('woocommerce_new_order', 'wsn_notify_new_order', 10, 1); 
+//add_action('woocommerce_new_order', 'wsn_notify_new_order', 10, 1);
+add_action('woocommerce_thankyou', 'wsn_notify_new_order', 20, 1);
+add_action('woocommerce_order_status_processing', 'wsn_notify_new_order', 10, 1);
+add_action('woocommerce_order_status_completed', 'wsn_notify_new_order', 10, 1);
+
 add_action('woocommerce_order_status_changed', 'wsn_notify_order_status_change', 10, 4); 
 add_action('woocommerce_low_stock', 'wsn_notify_low_stock'); 
 add_action('woocommerce_no_stock', 'wsn_notify_no_stock'); 
@@ -60,6 +64,11 @@ function wsn_order_value_emoji($total) {
 }
 
 function wsn_notify_new_order($order_id) {
+    if (get_post_meta($order_id, '_wsn_slack_notified', true)) {
+      return;
+    }
+    update_post_meta($order_id, '_wsn_slack_notified', time());
+
     $opt = get_option('wsn_settings');
     if (!($opt['enable_new_order'] ?? false)) return;
     $order = wc_get_order($order_id);
@@ -456,6 +465,7 @@ function wsn_notify_order_status_change($order_id, $old_status, $new_status) {
     if (!$order) return;
 
     $total = $order->get_formatted_order_total();
+    $total2 = html_entity_decode(strip_tags($total));
     $customer_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();
     $customer_email = $order->get_billing_email();
     $payment_method = $order->get_payment_method_title();
@@ -476,11 +486,11 @@ function wsn_notify_order_status_change($order_id, $old_status, $new_status) {
         [
             "type" => "section",
             "fields" => [
-                [ "type" => "mrkdwn", "text" => "*Total:*\n{$total}" ],
-                [ "type" => "mrkdwn", "text" => "*Payment:*\n{$payment_method}" ],
-                [ "type" => "mrkdwn", "text" => "*Customer:*\n{$customer_name}" ],
-                [ "type" => "mrkdwn", "text" => "*Email:*\n{$customer_email}" ],
-                [ "type" => "mrkdwn", "text" => "*Date:*\n{$order_date}" ],
+                [ "type" => "mrkdwn", "text" => "*Total:* {$total2}" ],
+                [ "type" => "mrkdwn", "text" => "*Payment:* {$payment_method}" ],
+                [ "type" => "mrkdwn", "text" => "*Customer:* {$customer_name}" ],
+                [ "type" => "mrkdwn", "text" => "*Email:* {$customer_email}" ],
+                [ "type" => "mrkdwn", "text" => "*Date:* {$order_date}" ],
             ]
         ]
     ];
